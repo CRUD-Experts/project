@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -19,89 +20,86 @@ func (r *BaseRepository) GetCollection() *mongo.Collection {
 	return r.collection
 }
 
-func (r *BaseRepository) Create(ctx context.Context, document interface{}) error {
-    _, err := r.collection.InsertOne(ctx, document)
-    if err != nil {
-        return err
-    }
-    return nil
+func (r *BaseRepository) Create(ctx context.Context, document interface{}) (interface{}, error) {
+	result, err := r.collection.InsertOne(ctx, document)
+
+	return result, err
 }
 
 // FindByID finds a document by its ID
-func (r *BaseRepository) FindByID(ctx context.Context, id interface{}, result interface{}) error {
-    err := r.collection.FindOne(ctx, id).Decode(result)
-    if err != nil {
-        return err
-    }
-    return nil
+func (r *BaseRepository) FindByID(ctx context.Context, id interface{}, result interface{}) (interface{}, error) {
+	err := r.collection.FindOne(ctx, id).Decode(result)
+
+	return result, err
 }
 
-func (r *BaseRepository) FindAll(ctx context.Context, filter interface{}, result interface{}) error {
+func (r *BaseRepository) FindAll(ctx context.Context, filter interface{}, result interface{}) (interface{}, error) {
 	cursor, err := r.collection.Find(ctx, filter)
 	if err != nil {
-		return err
+		return err, nil
 	}
 	defer cursor.Close(ctx)
 
 	if err := cursor.All(ctx, result); err != nil {
-		return err
+		return err, nil
 	}
-	return nil
+	return result, nil
 }
 
 // FindWithPagination finds documents with pagination
 func (r *BaseRepository) FindWithPagination(ctx context.Context, filter interface{}, page, pageSize int64) ([]interface{}, error) {
-    findOptions := options.Find()
-    findOptions.SetSkip((page - 1) * pageSize)
-    findOptions.SetLimit(pageSize)
+	findOptions := options.Find()
+	findOptions.SetSkip((page - 1) * pageSize)
+	findOptions.SetLimit(pageSize)
 
-    cursor, err := r.collection.Find(ctx, filter, findOptions)
-    if err != nil {
-        return nil, err
-    }
-    defer cursor.Close(ctx)
+	ctx, cancel := context.WithTimeout(ctx, time.Second*5) // Add context timeout of 5 seconds
+	defer cancel()
 
-    var results []interface{}
-    for cursor.Next(ctx) {
-        var result interface{}
-        if err := cursor.Decode(&result); err != nil {
-            return nil, err
-        }
-        results = append(results, result)
-    }
+	cursor, err := r.collection.Find(ctx, filter, findOptions)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
 
-    if err := cursor.Err(); err != nil {
-        return nil, err
-    }
+	results := make([]interface{}, 0, pageSize)
+	for cursor.Next(ctx) {
+		var result interface{}
+		if err := cursor.Decode(&result); err != nil {
+			return nil, err
+		}
+		results = append(results, result)
+	}
 
-    return results, nil
+	if err := cursor.Err(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
 }
 
 // FindWhere finds documents that match the specified filter and returns them
 func (r *BaseRepository) FindWhere(ctx context.Context, filter interface{}) ([]interface{}, error) {
-    cursor, err := r.collection.Find(ctx, filter)
-    if err != nil {
-        return nil, err
-    }
-    defer cursor.Close(ctx)
+	cursor, err := r.collection.Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
 
-    var results []interface{}
-    for cursor.Next(ctx) {
-        var result interface{}
-        if err := cursor.Decode(&result); err != nil {
-            return nil, err
-        }
-        results = append(results, result)
-    }
+	var results []interface{}
+	for cursor.Next(ctx) {
+		var result interface{}
+		if err := cursor.Decode(&result); err != nil {
+			return nil, err
+		}
+		results = append(results, result)
+	}
 
-    if err := cursor.Err(); err != nil {
-        return nil, err
-    }
+	if err := cursor.Err(); err != nil {
+		return nil, err
+	}
 
-    return results, nil
+	return results, nil
 }
-
-
 
 // Update updates an existing document in the collection
 func (r *BaseRepository) Update(ctx context.Context, id interface{}, update interface{}) (interface{}, error) {
@@ -115,14 +113,14 @@ func (r *BaseRepository) Update(ctx context.Context, id interface{}, update inte
 // UpdateMany updates multiple documents in the collection
 func (r *BaseRepository) UpdateMany(ctx context.Context, filter interface{}, update interface{}) (interface{}, error) {
 	result, err := r.collection.UpdateMany(ctx, filter, update)
-	return result, err;
+	return result, err
 }
 
 // Delete deletes a document from the collection
 func (r *BaseRepository) Delete(ctx context.Context, id interface{}) error {
-    _, err := r.collection.DeleteOne(ctx, id)
-    
-    return err
+	_, err := r.collection.DeleteOne(ctx, id)
+
+	return err
 }
 
 // DeleteMany deletes multiple documents from the collection
